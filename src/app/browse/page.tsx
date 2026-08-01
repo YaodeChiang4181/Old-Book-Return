@@ -47,7 +47,7 @@ export default async function BrowsePage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {books.map((book) => (
+          {books.map((book: any) => (
             <div key={book.id} className="bg-white rounded-xl shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow">
               <div className="relative h-64 w-full bg-gray-100">
                 {book.imageUrl ? (

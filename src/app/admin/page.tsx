@@ -47,7 +47,7 @@ export default async function AdminPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {pendingBooks.map((book) => (
+          {pendingBooks.map((book: any) => (
             <div key={book.id} className="bg-white rounded-xl shadow-sm overflow-hidden flex flex-col border border-gray-200">
               <div className="relative h-64 w-full bg-gray-100">
                 {book.imageUrl ? (
