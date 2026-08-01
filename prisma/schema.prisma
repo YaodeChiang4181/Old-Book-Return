@@ -1,0 +1,129 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// NextAuth Models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  role          Role      @default(STUDENT)
+  points        Int       @default(0) // 貢獻度積分
+
+  accounts      Account[]
+  sessions      Session[]
+  donatedBooks  Book[]        @relation("BookDonor")
+  reservedBooks Book[]        @relation("BookRecipient")
+  transactions  Transaction[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Domain Models
+enum Role {
+  STUDENT
+  ADMIN
+}
+
+enum BookStatus {
+  PENDING // 待審核
+  IN_LOCKER // 庫存中 (可預約)
+  RESERVED // 已預約 (等待領取)
+  CLAIMED // 已領取
+  EXPIRED // 超時未領 (需二次分流)
+  REJECTED // 審核退回
+}
+
+model Book {
+  id          String     @id @default(cuid())
+  isbn        String?
+  title       String?
+  description String?    @db.Text
+  imageUrl    String?
+  status      BookStatus @default(PENDING)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // 30 days expiration tracking
+  inLockerSince DateTime?
+
+  donorId String
+  donor   User   @relation("BookDonor", fields: [donorId], references: [id])
+
+  recipientId String?
+  recipient   User?   @relation("BookRecipient", fields: [recipientId], references: [id])
+
+  transactions Transaction[]
+}
+
+model Transaction {
+  id        String   @id @default(cuid())
+  bookId    String
+  userId    String
+  type      TxType
+  message   String?  @db.Text // 感謝語或其他備註
+  createdAt DateTime @default(now())
+
+  book Book @relation(fields: [bookId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+}
+
+enum TxType {
+  DONATE
+  RESERVE
+  CLAIM
+}
+
+model LockerStatus {
+  id          String   @id @default(cuid())
+  location    String   @default("系辦走廊")
+  password    String   @default("0000") // MVP 固定密碼
+  capacity    Int      @default(30)
+  currentLoad Int      @default(0)
+  updatedAt   DateTime @updatedAt
+}
