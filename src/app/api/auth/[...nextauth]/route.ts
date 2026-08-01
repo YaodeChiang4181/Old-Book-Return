@@ -1,0 +1,41 @@
+import NextAuth from "next-auth"
+import GoogleProvider from "next-auth/providers/google"
+import { PrismaAdapter } from "@auth/prisma-adapter"
+import prisma from "@/lib/prisma"
+
+export const authOptions = {
+  adapter: PrismaAdapter(prisma),
+  providers: [
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    }),
+  ],
+  callbacks: {
+    async signIn({ user }) {
+      // 若信箱為 @cc.ncu.edu.tw，自動賦予管理員權限
+      if (user.email?.endsWith('@cc.ncu.edu.tw') && user.id) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { role: 'ADMIN' }
+        });
+      }
+      return true;
+    },
+    async session({ session, user }: any) {
+      if (session.user) {
+        session.user.id = user.id;
+        session.user.role = user.role;
+        // 動態判定 (確保剛更新的狀態有生效)
+        if (session.user.email?.endsWith('@cc.ncu.edu.tw')) {
+          session.user.role = 'ADMIN';
+        }
+      }
+      return session;
+    },
+  },
+}
+
+const handler = NextAuth(authOptions)
+
+export { handler as GET, handler as POST }

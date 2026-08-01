@@ -1,0 +1,81 @@
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/[...nextauth]/route";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+export async function POST(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session || !session.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const { title, isbn, description, imageUrl } = body;
+
+    if (!title || !imageUrl) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    let initialStatus = "PENDING"; // 預設需要人工審核
+
+    // 嘗試使用 Gemini API 進行 AI 圖片審核
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+        // 取得圖片資料
+        const imageResp = await fetch(imageUrl);
+        const imageBuffer = await imageResp.arrayBuffer();
+        
+        const imageParts = [
+          {
+            inlineData: {
+              data: Buffer.from(imageBuffer).toString("base64"),
+              mimeType: imageResp.headers.get("content-type") || "image/jpeg"
+            }
+          }
+        ];
+
+        const prompt = `這是一張使用者上傳的二手書照片。請你幫我判斷這張圖片中是不是一本書，而且圖片中的書名（或是內容）是否符合這個名稱：『${title}』。請只回答 YES 或 NO。如果模糊不清無法判斷，請回答 NO。`;
+        
+        const result = await model.generateContent([prompt, ...imageParts]);
+        const responseText = result.response.text().toUpperCase();
+
+        if (responseText.includes("YES")) {
+          initialStatus = "IN_LOCKER"; // AI 審核通過，直接入庫
+        }
+      } catch (aiError) {
+        console.error("Gemini AI Review Error:", aiError);
+        // 若 AI 審核失敗，則降級回人工審核，不阻擋上傳
+      }
+    }
+
+    const newBook = await prisma.book.create({
+      data: {
+        title,
+        isbn,
+        description,
+        imageUrl,
+        donorId: session.user.id,
+        status: initialStatus as any, // 根據 AI 審核結果決定
+      },
+    });
+
+    // Also log the transaction
+    await prisma.transaction.create({
+      data: {
+        bookId: newBook.id,
+        userId: session.user.id,
+        type: "DONATE",
+      },
+    });
+
+    return NextResponse.json({ success: true, book: newBook, aiApproved: initialStatus === "IN_LOCKER" }, { status: 201 });
+  } catch (error: any) {
+    console.error("Create book error:", error);
+    return NextResponse.json({ error: "Failed to submit book donation" }, { status: 500 });
+  }
+}

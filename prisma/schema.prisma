@@ -47,7 +47,6 @@ model User {
   emailVerified DateTime?
   image         String?
   role          Role      @default(STUDENT)
-  points        Int       @default(0) // 貢獻度積分
 
   accounts      Account[]
   sessions      Session[]
