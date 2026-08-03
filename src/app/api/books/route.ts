@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    let initialStatus = "PENDING"; // 預設需要人工審核
+    let initialStatus = "IN_LOCKER"; // Demo階段：跳過人工審核，預設直接入庫
 
     // 嘗試使用 Gemini API 進行 AI 圖片審核
     if (process.env.GEMINI_API_KEY) {
@@ -44,12 +44,13 @@ export async function POST(req: NextRequest) {
         const result = await model.generateContent([prompt, ...imageParts]);
         const responseText = result.response.text().toUpperCase();
 
-        if (responseText.includes("YES")) {
-          initialStatus = "IN_LOCKER"; // AI 審核通過，直接入庫
+        if (!responseText.includes("YES")) {
+          // 若 AI 審核失敗，直接回傳錯誤，不進入 PENDING 狀態
+          return NextResponse.json({ error: "AI 審核未通過：照片與書名不符，或無法清楚辨識為書本。請重新拍攝清晰的照片。" }, { status: 400 });
         }
       } catch (aiError) {
         console.error("Gemini AI Review Error:", aiError);
-        // 若 AI 審核失敗，則降級回人工審核，不阻擋上傳
+        // 若 AI 審核發生例外錯誤，為了 demo 順利，仍先放行入庫
       }
     }
 
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
         imageUrl,
         donorId: session.user.id,
         status: initialStatus as any, // 根據 AI 審核結果決定
+        inLockerSince: initialStatus === "IN_LOCKER" ? new Date() : undefined,
       },
     });
 
