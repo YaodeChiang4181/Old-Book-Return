@@ -70,7 +70,7 @@ export default async function ClaimPage(
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">填寫感謝語</h2>
           <p className="text-gray-600">
-            送出一句感謝的話給捐贈者，您將獲得開啟舊書箱的密碼。請在取得密碼後，儘速前往系辦走廊領取。
+            送出一句感謝的話給捐贈者，並完成預約領取。請在預約後，儘速前往系辦走廊領取，書箱密碼請見書箱旁的板子。
           </p>
         </div>
         <ClaimForm bookId={book.id} />

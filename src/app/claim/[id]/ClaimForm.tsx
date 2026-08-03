@@ -48,12 +48,8 @@ export default function ClaimForm({ bookId }: { bookId: string }) {
         <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
           <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
         </div>
-        <h3 className="text-xl font-bold text-gray-900 mb-2">領取成功！</h3>
-        <p className="text-gray-600 mb-6">請前往經濟系辦走廊尋找舊書箱，並使用以下密碼開鎖：</p>
-        
-        <div className="bg-gray-900 text-white text-4xl tracking-[0.5em] font-mono py-6 px-4 rounded-xl shadow-inner mb-8 inline-block min-w-[200px]">
-          {lockerPassword}
-        </div>
+        <h3 className="text-xl font-bold text-gray-900 mb-2">預約領取成功！</h3>
+        <p className="text-gray-600 mb-6">請前往系辦走廊尋找舊書箱領取，書箱密碼已寫在書箱旁的板子上。</p>
         
         <p className="text-sm text-red-500 font-medium mb-6">
           ⚠️ 注意：請盡快前往領取。若遲遲未領取，書本將可能被重新釋出。
@@ -96,7 +92,7 @@ export default function ClaimForm({ bookId }: { bookId: string }) {
         disabled={isLoading || !message.trim()}
         className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 transition-colors"
       >
-        {isLoading ? '處理中...' : '送出並獲取密碼'}
+        {isLoading ? '處理中...' : '送出並完成預約'}
       </button>
     </form>
   );
