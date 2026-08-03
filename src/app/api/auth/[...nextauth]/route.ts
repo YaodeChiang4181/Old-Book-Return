@@ -30,6 +30,8 @@ export const authOptions: NextAuthOptions = {
           id: profile.id || profile.identifier || String(Date.now()), // 假設的唯一識別碼
           name: profile.name || profile.chineseName || "中央大學學生",
           email: profile.email || `${profile.id}@cc.ncu.edu.tw`, // 假設的 email
+          image: null,
+          role: "STUDENT", // 加入 default role 以符合 TypeScript 型別定義
         };
       },
     }
