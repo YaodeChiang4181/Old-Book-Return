@@ -1,5 +1,6 @@
 import NextAuth, { NextAuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
+import LineProvider from "next-auth/providers/line"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import prisma from "@/lib/prisma"
 
@@ -10,31 +11,10 @@ export const authOptions: NextAuthOptions = {
       clientId: process.env.GOOGLE_CLIENT_ID || "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
     }),
-    {
-      id: "ncu",
-      name: "NCU Portal",
-      type: "oauth",
-      version: "2.0",
-      authorization: { url: "https://portal.ncu.edu.tw/oauth2/authorization" },
-      token: {
-        url: "https://portal.ncu.edu.tw/oauth2/token",
-        // 依據截圖說明，需要在 header 加入 Accept: application/json
-        // 以及使用 Basic Auth (NextAuth 預設 client_secret_basic 通常就是這樣)
-      },
-      userinfo: { url: "https://portal.ncu.edu.tw/apis/oauth/v1/info" },
-      clientId: process.env.NCU_CLIENT_ID || "",
-      clientSecret: process.env.NCU_CLIENT_SECRET || "",
-      profile(profile: any) {
-        // FIXME: 這裡需要依照 NCU API 實際回傳的 JSON 格式來修改欄位名稱
-        return {
-          id: profile.id || profile.identifier || String(Date.now()), // 假設的唯一識別碼
-          name: profile.name || profile.chineseName || "中央大學學生",
-          email: profile.email || `${profile.id}@cc.ncu.edu.tw`, // 假設的 email
-          image: null,
-          role: "STUDENT", // 加入 default role 以符合 TypeScript 型別定義
-        };
-      },
-    }
+    LineProvider({
+      clientId: process.env.LINE_CLIENT_ID || "2011021687",
+      clientSecret: process.env.LINE_CLIENT_SECRET || "fdbbd679f1359a6c8ffd0a05d43741ca",
+    })
   ],
   callbacks: {
     async signIn({ user }) {
