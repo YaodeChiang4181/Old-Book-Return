@@ -47,6 +47,7 @@ model User {
   image         String?
   role          Role      @default(STUDENT)
   lineUserId    String?   @unique
+  studentId     String?   @unique
 
   accounts      Account[]
   sessions      Session[]

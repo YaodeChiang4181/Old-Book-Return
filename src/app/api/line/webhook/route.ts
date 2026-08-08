@@ -245,6 +245,52 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
+        // --- 狀態：處理綁定學號 ---
+        if (currentState === 'WAITING_FOR_STUDENT_ID') {
+          if (event.message.type !== 'text') {
+            await replyText(replyToken, "⚠️ 請輸入文字格式的 9 位數學校學號進行綁定（例如：111409123）。");
+            continue;
+          }
+
+          const inputId = text.trim();
+          // 驗證是否為 9 位數字
+          if (!/^\d{9}$/.test(inputId)) {
+            await replyText(replyToken, "❌ 學號格式錯誤！請輸入 9 位數字（例如：111409123）。\n\n請重新輸入：");
+            continue;
+          }
+
+          // 確認是否已被其他人綁定
+          const existingUser = await prisma.user.findUnique({ where: { studentId: inputId } });
+          if (existingUser && existingUser.id !== user.id) {
+            await replyText(replyToken, "❌ 這個學號已經被其他 LINE 帳號綁定過了！如果這是您的學號，請聯繫管理員處理。\n\n請重新輸入：");
+            continue;
+          }
+
+          // 更新學號
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { studentId: inputId }
+          });
+
+          // 清空狀態機
+          await prisma.lineBotState.delete({ where: { lineUserId } });
+
+          await replyText(replyToken, `✅ 學號 (${inputId}) 綁定成功！\n\n您可以開始點擊選單使用「我要找書」或「我要捐書」囉！`);
+          continue;
+        }
+
+        // 攔截尚未綁定學號的用戶 (任何其他動作前)
+        // 使用者如果有輸入密碼指令或是取消指令，已經在上方被處理掉
+        if (!(user as any).studentId) {
+            await prisma.lineBotState.upsert({
+              where: { lineUserId },
+              create: { lineUserId, state: 'WAITING_FOR_STUDENT_ID', data: "{}" },
+              update: { state: 'WAITING_FOR_STUDENT_ID', data: "{}" }
+            });
+            await replyText(replyToken, "歡迎使用校園舊書箱！\n\n為了方便日後管理您的贈書與預約紀錄，初次使用請先輸入您的【9位數學校學號】進行綁定：");
+            continue;
+        }
+
         // --- 狀態 0：啟動捐書 ---
         if (text === '#我要捐書' || text === '我要捐書') {
           await prisma.lineBotState.upsert({
