@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
       }
 
       // ==========================================
-      // Postback 事件處理 (管理員點擊卡片)
+      // Postback 事件處理 (管理員點擊卡片 或 學生預約)
       // ==========================================
       if (event.type === 'postback') {
         const postbackData = new URLSearchParams(event.postback.data);
@@ -185,6 +185,30 @@ export async function POST(req: NextRequest) {
               messages: [{ type: 'text', text: `❌ 很抱歉，您捐贈的書籍《${book.title}》審核未通過，請至系辦取回喔。` }]
             }).catch(console.error);
           }
+        } else if (action === 'reserve' && bookId) {
+          // 學生預約流程
+          const book = await prisma.book.findUnique({ where: { id: bookId } });
+          if (!book || book.status !== 'IN_LOCKER') {
+            await replyText(event.replyToken, `❌ 預約失敗！這本書可能剛好被其他人預約或取走了。`);
+            continue;
+          }
+
+          // 更新狀態為 RESERVED
+          await prisma.book.update({
+            where: { id: bookId },
+            data: { status: 'RESERVED', recipientId: user.id }
+          });
+
+          // 紀錄交易
+          await prisma.transaction.create({
+            data: {
+              bookId: bookId,
+              userId: user.id,
+              type: 'RESERVE'
+            }
+          });
+
+          await replyText(event.replyToken, `✅ 預約成功！\n\n書箱密碼為：0000\n請於三天內前往系辦走廊的舊書箱領取您的書籍喔！`);
         }
         continue;
       }
@@ -232,7 +256,18 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // --- 狀態 1：問書況 ---
+        // --- 狀態 0：啟動找書 ---
+        if (text === '#我要找書' || text === '我要找書') {
+          await prisma.lineBotState.upsert({
+            where: { lineUserId },
+            create: { lineUserId, state: 'WAITING_FOR_SEARCH_KEYWORD', data: "{}" },
+            update: { state: 'WAITING_FOR_SEARCH_KEYWORD', data: "{}" }
+          });
+          await replyText(replyToken, "🔍 請輸入你想尋找的書名關鍵字（例如：微積分）：");
+          continue;
+        }
+
+        // --- 狀態 1：問書況 (捐書流程) ---
         if (currentState === 'WAITING_FOR_BOOK_TITLE' && event.message.type === 'text') {
           const bookTitle = text;
           await prisma.lineBotState.update({
@@ -246,7 +281,7 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // --- 狀態 2：要求上傳圖片 ---
+        // --- 狀態 2：要求上傳圖片 (捐書流程) ---
         if (currentState === 'WAITING_FOR_BOOK_DESC' && event.message.type === 'text') {
           const description = text;
           const stateData = stateRecord?.data ? JSON.parse(stateRecord.data) : {};
@@ -264,10 +299,17 @@ export async function POST(req: NextRequest) {
         }
 
         // --- 狀態 3：處理圖片上傳並完成捐書 ---
-        if (currentState === 'WAITING_FOR_BOOK_IMAGE' && event.message.type === 'image') {
-          // 在邊緣運算環境中，發送 HTTP 請求給 LINE 下載圖片
+        if (currentState === 'WAITING_FOR_BOOK_IMAGE') {
+          if (event.message.type !== 'image') {
+            await replyText(replyToken, "⚠️ 提醒：請傳送「相片」來完成封面照片上傳，或是輸入「取消」放棄捐書。");
+            continue;
+          }
+
+          await replyText(replyToken, "⏳ 正在上傳照片並通知管理員，請稍候...");
+          
           let imageUrl = '';
           try {
+            // 下載 LINE 的圖片
             const messageId = event.message.id;
             const res = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
               headers: { Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
@@ -280,6 +322,7 @@ export async function POST(req: NextRequest) {
             imageUrl = await uploadToR2(buffer, filename);
           } catch (e) {
             console.error("Image Processing Error", e);
+            // 即使圖片失敗，依然繼續流程，只是沒圖片
           }
 
           const stateData = stateRecord?.data ? JSON.parse(stateRecord.data) : {};
@@ -320,9 +363,87 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
+        // --- 狀態：處理找書關鍵字 (找書流程) ---
+        if (currentState === 'WAITING_FOR_SEARCH_KEYWORD' && event.message.type === 'text') {
+          const keyword = text;
+          
+          // 不區分大小寫搜尋書名，狀態必須是 IN_LOCKER
+          const books = await prisma.book.findMany({
+            where: {
+              status: 'IN_LOCKER',
+              title: { contains: keyword, mode: 'insensitive' }
+            },
+            take: 12 // LINE carousel 最多 12 個泡泡
+          });
+
+          // 清空狀態機
+          await prisma.lineBotState.delete({ where: { lineUserId } });
+
+          if (books.length === 0) {
+            await replyText(replyToken, `❌ 目前書箱中找不到包含「${keyword}」的書籍，請換個關鍵字再試一次！`);
+            continue;
+          }
+
+          // 組裝旋轉木馬 Carousel (Flex Message)
+          const bubbles = books.map(book => ({
+            type: "bubble",
+            hero: {
+              type: "image",
+              url: book.imageUrl || "https://via.placeholder.com/1024x768?text=No+Image",
+              size: "full",
+              aspectRatio: "20:13",
+              aspectMode: "cover"
+            },
+            body: {
+              type: "box",
+              layout: "vertical",
+              contents: [
+                { type: "text", text: book.title || "未知書籍", weight: "bold", size: "xl", wrap: true },
+                { type: "text", text: `書況: ${book.description || "無"}`, margin: "md", color: "#666666", wrap: true }
+              ]
+            },
+            footer: {
+              type: "box",
+              layout: "vertical",
+              spacing: "sm",
+              contents: [
+                {
+                  type: "button",
+                  style: "primary",
+                  color: "#2188ff",
+                  action: {
+                    type: "postback",
+                    label: "一鍵預約",
+                    data: `action=reserve&bookId=${book.id}`
+                  }
+                }
+              ]
+            }
+          }));
+
+          const flexMessage = {
+            type: "flex",
+            altText: `為你找到 ${books.length} 本書籍`,
+            contents: {
+              type: "carousel",
+              contents: bubbles
+            }
+          };
+
+          try {
+            await client.replyMessage({
+              replyToken,
+              messages: [flexMessage as any]
+            });
+          } catch (e) {
+            console.error('Flex Message Error', e);
+          }
+          continue;
+        }
+
         // 其他未辨識的文字指令
         if (!currentState && event.message.type === 'text') {
-          await replyText(replyToken, "歡迎使用校園舊書箱！\n你可以點擊下方選單的「我要捐書」來捐贈書籍。");
+          await replyText(replyToken, "歡迎使用校園舊書箱！\n你可以點擊下方選單的「我要捐書」來捐贈書籍，或點擊「我要找書」尋寶！");
         }
       }
     }
