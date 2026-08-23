@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import prisma from '@/lib/prisma';
 import { messagingApi } from '@line/bot-sdk';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const { MessagingApiClient } = messagingApi;
 const client = new MessagingApiClient({
@@ -468,7 +469,11 @@ export async function POST(req: NextRequest) {
             continue;
           }
 
-          await replyText(replyToken, "⏳ 正在上傳照片並通知管理員，請稍候...");
+          const stateData = stateRecord?.data ? JSON.parse(stateRecord.data) : {};
+          const bookTitle = stateData.title || '未知書籍';
+          const description = stateData.description || '';
+
+          await replyText(replyToken, "⏳ 正在由 AI 審核照片並準備入庫，請稍候...");
           
           let imageUrl = '';
           try {
@@ -479,6 +484,37 @@ export async function POST(req: NextRequest) {
             });
             const arrayBuffer = await res.arrayBuffer();
             const buffer = Buffer.from(arrayBuffer);
+
+            // --- 嘗試使用 Gemini API 進行 AI 圖片審核 ---
+            if (process.env.GEMINI_API_KEY) {
+              try {
+                const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+                const imageParts = [
+                  {
+                    inlineData: {
+                      data: buffer.toString("base64"),
+                      mimeType: "image/jpeg"
+                    }
+                  }
+                ];
+
+                const prompt = `這是一張使用者上傳的二手書照片。請你幫我判斷這張圖片中是不是一本書，而且圖片中的書名（或是內容）是否符合這個名稱：『${bookTitle}』。請只回答 YES 或 NO。如果模糊不清無法判斷，請回答 NO。`;
+                
+                const result = await model.generateContent([prompt, ...imageParts]);
+                const responseText = result.response.text().toUpperCase();
+
+                if (!responseText.includes("YES")) {
+                  // AI 審核未通過
+                  await replyText(replyToken, "❌ AI 審核未通過：照片與你輸入的書名不符，或無法清楚辨識為書本。\n\n請重新拍攝清晰的「書本封面」照片並再次上傳！📸");
+                  continue; // 終止後續處理，讓使用者保持 WAITING_FOR_BOOK_IMAGE 狀態重新上傳
+                }
+              } catch (aiError) {
+                console.error("Gemini AI Review Error in Webhook:", aiError);
+                // 若 AI 審核發生例外錯誤，為了 demo 順利，仍先放行
+              }
+            }
             
             // 上傳到 Cloudflare R2
             const filename = `books/${Date.now()}_${lineUserId}.jpg`;
@@ -487,10 +523,6 @@ export async function POST(req: NextRequest) {
             console.error("Image Processing Error", e);
             // 即使圖片失敗，依然繼續流程，只是沒圖片
           }
-
-          const stateData = stateRecord?.data ? JSON.parse(stateRecord.data) : {};
-          const bookTitle = stateData.title || '未知書籍';
-          const description = stateData.description || '';
 
           // 1. 在資料庫建立 Book (狀態預設為 PENDING)
           const newBook = await prisma.book.create({
