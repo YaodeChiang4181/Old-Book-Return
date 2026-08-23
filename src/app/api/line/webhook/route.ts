@@ -513,8 +513,18 @@ export async function POST(req: NextRequest) {
 
                 const prompt = `這是一張使用者上傳的二手書照片。請你幫我判斷這張圖片中是不是一本書，而且圖片中的書名（或是內容）是否符合這個名稱：『${bookTitle}』。請只回答 YES 或 NO。如果模糊不清無法判斷，請回答 NO。`;
                 
-                const result = await model.generateContent([prompt, ...imageParts]);
-                const responseText = result.response.text().toUpperCase();
+                let responseText = "";
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                  try {
+                    const result = await model.generateContent([prompt, ...imageParts]);
+                    responseText = result.response.text().toUpperCase();
+                    break; // 成功則跳出迴圈
+                  } catch (err) {
+                    if (attempt === 3) throw err; // 第三次還是失敗，丟出錯誤讓外層 catch 捕捉
+                    console.warn(`Gemini AI Review Attempt ${attempt} failed, retrying...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // 遞延重試
+                  }
+                }
 
                 if (!responseText.includes("YES")) {
                   // AI 審核未通過
