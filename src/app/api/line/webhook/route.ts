@@ -353,8 +353,7 @@ export async function POST(req: NextRequest) {
               contents: [
                 {
                   type: "button",
-                  style: "primary",
-                  color: "#ff9900",
+                  style: "secondary",
                   action: {
                     type: "message",
                     label: "輸入關鍵字",
@@ -369,7 +368,7 @@ export async function POST(req: NextRequest) {
             type: "bubble",
             hero: {
               type: "image",
-              url: book.imageUrl || "https://via.placeholder.com/1024x768?text=No+Image",
+              url: book.imageUrl || "https://fakeimg.pl/1024x768/E8F5E9/2E7D32/?text=暫無封面照片&font=noto",
               size: "full",
               aspectRatio: "20:13",
               aspectMode: "cover"
@@ -379,7 +378,17 @@ export async function POST(req: NextRequest) {
               layout: "vertical",
               contents: [
                 { type: "text", text: book.title || "未知書籍", weight: "bold", size: "xl", wrap: true },
-                { type: "text", text: `書況: ${book.description || "無"}`, margin: "md", color: "#666666", wrap: true }
+                { 
+                  type: "box", 
+                  layout: "vertical",
+                  margin: "md",
+                  backgroundColor: "#E8F5E9",
+                  cornerRadius: "md",
+                  paddingAll: "sm",
+                  contents: [
+                    { type: "text", text: `#${book.description || "無"}`, color: "#2E7D32", size: "sm", weight: "bold", wrap: true }
+                  ]
+                }
               ]
             },
             footer: {
@@ -390,7 +399,7 @@ export async function POST(req: NextRequest) {
                 {
                   type: "button",
                   style: "primary",
-                  color: "#2188ff",
+                  color: "#1B4D3E",
                   action: {
                     type: "postback",
                     label: "一鍵預約",
@@ -543,7 +552,7 @@ export async function POST(req: NextRequest) {
             type: "bubble",
             hero: {
               type: "image",
-              url: book.imageUrl || "https://via.placeholder.com/1024x768?text=No+Image",
+              url: book.imageUrl || "https://fakeimg.pl/1024x768/E8F5E9/2E7D32/?text=暫無封面照片&font=noto",
               size: "full",
               aspectRatio: "20:13",
               aspectMode: "cover"
@@ -553,7 +562,17 @@ export async function POST(req: NextRequest) {
               layout: "vertical",
               contents: [
                 { type: "text", text: book.title || "未知書籍", weight: "bold", size: "xl", wrap: true },
-                { type: "text", text: `書況: ${book.description || "無"}`, margin: "md", color: "#666666", wrap: true }
+                { 
+                  type: "box", 
+                  layout: "vertical",
+                  margin: "md",
+                  backgroundColor: "#E8F5E9",
+                  cornerRadius: "md",
+                  paddingAll: "sm",
+                  contents: [
+                    { type: "text", text: `#${book.description || "無"}`, color: "#2E7D32", size: "sm", weight: "bold", wrap: true }
+                  ]
+                }
               ]
             },
             footer: {
@@ -564,7 +583,7 @@ export async function POST(req: NextRequest) {
                 {
                   type: "button",
                   style: "primary",
-                  color: "#2188ff",
+                  color: "#1B4D3E",
                   action: {
                     type: "postback",
                     label: "一鍵預約",
