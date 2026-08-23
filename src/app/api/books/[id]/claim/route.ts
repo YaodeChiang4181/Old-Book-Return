@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 export async function POST(
   req: NextRequest,
@@ -46,6 +47,30 @@ export async function POST(
         },
       }),
     ]);
+
+    // 從 R2 刪除書籍圖片以節省空間
+    if (book.imageUrl) {
+      try {
+        const s3Client = new S3Client({
+          region: "auto",
+          endpoint: process.env.R2_ENDPOINT || "",
+          credentials: {
+            accessKeyId: process.env.R2_ACCESS_KEY_ID || "",
+            secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
+          },
+        });
+        const urlObj = new URL(book.imageUrl);
+        const key = urlObj.pathname.startsWith("/") ? urlObj.pathname.substring(1) : urlObj.pathname;
+        const deleteCommand = new DeleteObjectCommand({
+          Bucket: process.env.R2_BUCKET_NAME || "",
+          Key: key,
+        });
+        await s3Client.send(deleteCommand);
+      } catch (r2Error) {
+        console.error("Failed to delete image from R2:", r2Error);
+        // 不影響領取流程，僅印出錯誤
+      }
+    }
 
     // 取得舊書箱密碼 (MVP階段如果沒有記錄就給預設)
     let locker = await prisma.lockerStatus.findFirst();
