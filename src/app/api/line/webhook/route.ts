@@ -134,10 +134,18 @@ export async function POST(req: NextRequest) {
       });
 
       if (!user) {
+        let displayName = "LINE 用戶";
+        try {
+          const profile = await client.getProfile(lineUserId);
+          displayName = profile.displayName || "LINE 用戶";
+        } catch (error) {
+          console.error("Error getting LINE profile:", error);
+        }
+
         user = await prisma.user.create({
           data: {
             lineUserId: lineUserId,
-            name: "LINE 用戶",
+            name: displayName,
             accounts: {
               create: {
                 type: 'oauth',
@@ -302,14 +310,114 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // --- 狀態 0：啟動找書 ---
-        if (text === '#我要找書' || text === '我要找書') {
+        // --- 狀態 0：精準找書 ---
+        if (text === '#精準找書' || text === '精準找書') {
           await prisma.lineBotState.upsert({
             where: { lineUserId },
             create: { lineUserId, state: 'WAITING_FOR_SEARCH_KEYWORD', data: "{}" },
             update: { state: 'WAITING_FOR_SEARCH_KEYWORD', data: "{}" }
           });
           await replyText(replyToken, "🔍 請輸入你想尋找的書名關鍵字（例如：微積分）：");
+          continue;
+        }
+
+        // --- 狀態 0：啟動找書 ---
+        if (text === '#我要找書' || text === '我要找書') {
+          const books = await prisma.book.findMany({
+            where: { status: 'IN_LOCKER' },
+            orderBy: { updatedAt: 'desc' },
+            take: 11
+          });
+
+          const searchCard = {
+            type: "bubble",
+            hero: {
+              type: "image",
+              url: "https://images.unsplash.com/photo-1588666309990-d68f08e3d4a6?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+              size: "full",
+              aspectRatio: "20:13",
+              aspectMode: "cover"
+            },
+            body: {
+              type: "box",
+              layout: "vertical",
+              contents: [
+                { type: "text", text: "🔍 精準搜尋", weight: "bold", size: "xl", wrap: true },
+                { type: "text", text: "沒看到想找的書嗎？點擊下方按鈕，輸入關鍵字尋寶！", margin: "md", color: "#666666", wrap: true }
+              ]
+            },
+            footer: {
+              type: "box",
+              layout: "vertical",
+              spacing: "sm",
+              contents: [
+                {
+                  type: "button",
+                  style: "primary",
+                  color: "#ff9900",
+                  action: {
+                    type: "message",
+                    label: "輸入關鍵字",
+                    text: "#精準找書"
+                  }
+                }
+              ]
+            }
+          };
+
+          const bookBubbles = books.map(book => ({
+            type: "bubble",
+            hero: {
+              type: "image",
+              url: book.imageUrl || "https://via.placeholder.com/1024x768?text=No+Image",
+              size: "full",
+              aspectRatio: "20:13",
+              aspectMode: "cover"
+            },
+            body: {
+              type: "box",
+              layout: "vertical",
+              contents: [
+                { type: "text", text: book.title || "未知書籍", weight: "bold", size: "xl", wrap: true },
+                { type: "text", text: `書況: ${book.description || "無"}`, margin: "md", color: "#666666", wrap: true }
+              ]
+            },
+            footer: {
+              type: "box",
+              layout: "vertical",
+              spacing: "sm",
+              contents: [
+                {
+                  type: "button",
+                  style: "primary",
+                  color: "#2188ff",
+                  action: {
+                    type: "postback",
+                    label: "一鍵預約",
+                    data: `action=reserve&bookId=${book.id}`
+                  }
+                }
+              ]
+            }
+          }));
+
+          const flexMessage = {
+            type: "flex",
+            altText: "目前可預約的舊書列表",
+            contents: {
+              type: "carousel",
+              contents: [searchCard, ...bookBubbles]
+            }
+          };
+
+          try {
+            await client.replyMessage({
+              replyToken,
+              messages: [flexMessage as any]
+            });
+          } catch (e) {
+            console.error("Reply Flex Error", e);
+          }
           continue;
         }
 
