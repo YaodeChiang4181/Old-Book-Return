@@ -45,6 +45,17 @@ const replyText = async (replyToken: string, text: string) => {
   }
 };
 
+const pushText = async (to: string, text: string) => {
+  try {
+    await client.pushMessage({
+      to,
+      messages: [{ type: 'text', text }]
+    });
+  } catch (error) {
+    console.error('Push Message Error:', error);
+  }
+};
+
 // 輔助函式：推播審核卡片給管理員
 const pushAdminCard = async (admins: any[], book: any, donor: any) => {
   const adminLineIds = admins.map(a => a.lineUserId).filter(Boolean) as string[];
@@ -507,12 +518,13 @@ export async function POST(req: NextRequest) {
 
                 if (!responseText.includes("YES")) {
                   // AI 審核未通過
-                  await replyText(replyToken, "❌ AI 審核未通過：照片與你輸入的書名不符，或無法清楚辨識為書本。\n\n請重新拍攝清晰的「書本封面」照片並再次上傳！📸");
+                  await pushText(lineUserId, "❌ AI 審核未通過：照片與你輸入的書名不符，或無法清楚辨識為書本。\n\n請重新拍攝清晰的「書本封面」照片並再次上傳！📸");
                   continue; // 終止後續處理，讓使用者保持 WAITING_FOR_BOOK_IMAGE 狀態重新上傳
                 }
               } catch (aiError) {
                 console.error("Gemini AI Review Error in Webhook:", aiError);
-                // 若 AI 審核發生例外錯誤，為了 demo 順利，仍先放行
+                await pushText(lineUserId, "⚠️ AI 審核系統暫時無法連線，請確認 API Key 設定正確或稍後再試！");
+                continue; // 終止後續處理，嚴格擋下
               }
             }
             
@@ -547,8 +559,8 @@ export async function POST(req: NextRequest) {
           // 3. 清空狀態機
           await prisma.lineBotState.delete({ where: { lineUserId } });
 
-          // 推播給捐贈者 (用 replyToken 也行，但這裡直接 replyText)
-          await replyText(replyToken, "✅ 捐書登記成功！\n\n請將書本帶至系辦走廊，交給管理員審核放入舊書箱喔！\n審核通過後，我會再傳送 LINE 通知給你。");
+          // 推播給捐贈者 (因為 replyToken 已經被「審核中」使用，這裡必須用 pushText)
+          await pushText(lineUserId, "✅ 捐書登記成功！\n\n請將書本帶至系辦走廊，交給管理員審核放入舊書箱喔！\n審核通過後，我會再傳送 LINE 通知給你。");
 
           // 4. 推播審核卡片給所有 Admin
           const admins = await prisma.user.findMany({ where: { role: 'ADMIN', lineUserId: { not: null } } });
