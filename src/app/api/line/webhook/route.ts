@@ -503,7 +503,7 @@ export async function POST(req: NextRequest) {
                 let responseText = "";
                 for (let attempt = 1; attempt <= 3; attempt++) {
                   try {
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
                       method: 'POST',
                       headers: {
                         'Content-Type': 'application/json'
