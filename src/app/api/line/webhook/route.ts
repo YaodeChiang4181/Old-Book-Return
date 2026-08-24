@@ -3,7 +3,6 @@ import crypto from 'crypto';
 import prisma from '@/lib/prisma';
 import { messagingApi } from '@line/bot-sdk';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const { MessagingApiClient } = messagingApi;
 const client = new MessagingApiClient({
@@ -499,25 +498,33 @@ export async function POST(req: NextRequest) {
             // --- 嘗試使用 Gemini API 進行 AI 圖片審核 ---
             if (process.env.GEMINI_API_KEY) {
               try {
-                const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-                const imageParts = [
-                  {
-                    inlineData: {
-                      data: buffer.toString("base64"),
-                      mimeType: "image/jpeg"
-                    }
-                  }
-                ];
-
                 const prompt = `這是一張使用者上傳的二手書照片。請你幫我判斷這張圖片中是不是一本書，而且圖片中的書名（或是內容）是否符合這個名稱：『${bookTitle}』。請只回答 YES 或 NO。如果模糊不清無法判斷，請回答 NO。`;
                 
                 let responseText = "";
                 for (let attempt = 1; attempt <= 3; attempt++) {
                   try {
-                    const result = await model.generateContent([prompt, ...imageParts]);
-                    responseText = result.response.text().toUpperCase();
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json'
+                      },
+                      body: JSON.stringify({
+                        contents: [{
+                          parts: [
+                            { text: prompt },
+                            { inlineData: { data: buffer.toString("base64"), mimeType: "image/jpeg" } }
+                          ]
+                        }]
+                      })
+                    });
+                    
+                    if (!response.ok) {
+                      const errText = await response.text();
+                      throw new Error(`API Error ${response.status}: ${errText}`);
+                    }
+                    
+                    const result = await response.json();
+                    responseText = (result.candidates?.[0]?.content?.parts?.[0]?.text || "").toUpperCase();
                     break; // 成功則跳出迴圈
                   } catch (err) {
                     if (attempt === 3) throw err; // 第三次還是失敗，丟出錯誤讓外層 catch 捕捉
