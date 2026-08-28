@@ -18,6 +18,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
+    // 檢查使用者目前未媒合（PENDING 或 IN_LOCKER）的書籍數量是否已達 3 本上限
+    const unmatchedBooksCount = await prisma.book.count({
+      where: {
+        donorId: session.user.id,
+        status: {
+          in: ["PENDING", "IN_LOCKER"],
+        },
+      },
+    });
+
+    if (unmatchedBooksCount >= 3) {
+      return NextResponse.json(
+        { error: "您目前已有 3 本未媒合書籍，請等待舊書被領取後再捐贈新書。" },
+        { status: 403 }
+      );
+    }
+
     let initialStatus = "IN_LOCKER"; // Demo階段：跳過人工審核，預設直接入庫
 
     // 嘗試使用 Gemini API 進行 AI 圖片審核
