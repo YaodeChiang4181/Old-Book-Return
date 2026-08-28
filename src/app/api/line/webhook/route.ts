@@ -228,6 +228,17 @@ export async function POST(req: NextRequest) {
           });
 
           await replyText(event.replyToken, `✅ 預約成功！\n\n書箱密碼為：0000\n請於三天內前往系辦走廊的舊書箱領取您的書籍喔！`);
+
+          // 通知所有管理員：有書被預約了，準備交接
+          const admins = await prisma.user.findMany({ where: { role: 'ADMIN', lineUserId: { not: null } } });
+          const adminLineIds = admins.map(a => a.lineUserId).filter(Boolean) as string[];
+          if (adminLineIds.length > 0) {
+            const adminMsg = `📦 【待取書籍交接通知】\n\n學生「${user.name}」剛剛預約了書籍《${book.title}》！\n\n負責人請於交接時段，確認是否有確實將此書交給該學生喔！`;
+            await client.multicast({
+              to: adminLineIds,
+              messages: [{ type: 'text', text: adminMsg }]
+            }).catch(console.error);
+          }
         }
         continue;
       }
