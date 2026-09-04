@@ -4,6 +4,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { redirect } from "next/navigation";
 import Image from "next/image";
 import AdminBookActions from "./AdminBookActions";
+import AdminHandoverButton from "./AdminHandoverButton";
 import { formatDistanceToNow, format } from "date-fns";
 import { zhTW } from "date-fns/locale";
 
@@ -51,7 +52,7 @@ export default async function AdminPage() {
     PENDING: { label: "待審核", color: "bg-yellow-100 text-yellow-800" },
     IN_LOCKER: { label: "可領取", color: "bg-green-100 text-green-800" },
     RESERVED: { label: "已預約", color: "bg-blue-100 text-blue-800" },
-    CLAIMED: { label: "已領取", color: "bg-gray-100 text-gray-800" },
+    CLAIMED: { label: "完成交接", color: "bg-gray-100 text-gray-800" },
     EXPIRED: { label: "已過期", color: "bg-red-100 text-red-800" },
     REJECTED: { label: "已退回", color: "bg-red-100 text-red-800" },
   };
@@ -116,8 +117,9 @@ export default async function AdminPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">書籍名稱</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">狀態</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">捐贈者</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">領取者</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">配對者</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">上傳時間</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -142,6 +144,11 @@ export default async function AdminPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {format(new Date(book.createdAt), 'yyyy/MM/dd HH:mm')}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {book.status === 'RESERVED' && (
+                          <AdminHandoverButton bookId={book.id} />
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -163,7 +170,7 @@ export default async function AdminPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">信箱</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">身分</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">捐贈數量</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">領取數量</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">配對數量</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">

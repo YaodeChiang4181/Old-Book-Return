@@ -21,6 +21,22 @@ export async function POST(
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
+    // 檢查使用者目前未完成交接（RESERVED 或 CLAIMED）的書籍數量是否已達 3 本上限
+    // 註：這視乎規則。如果規則是一次最多只能同時有3本預約或領取中，則檢查 RESERVED 狀態
+    const activeReservedBooksCount = await prisma.book.count({
+      where: {
+        recipientId: session.user.id,
+        status: "RESERVED",
+      },
+    });
+
+    if (activeReservedBooksCount >= 3) {
+      return NextResponse.json(
+        { error: "您目前已有 3 本預約中（尚未完成交接）的書籍，請先領取後再繼續預約。" },
+        { status: 403 }
+      );
+    }
+
     const book = await prisma.book.findUnique({
       where: { id: params.id },
     });

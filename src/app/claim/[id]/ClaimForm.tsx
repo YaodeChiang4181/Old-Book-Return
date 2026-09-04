@@ -30,7 +30,7 @@ export default function ClaimForm({ bookId }: { bookId: string }) {
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || '領取失敗');
+        throw new Error(data.error || '配對失敗');
       }
 
       const data = await res.json();
@@ -48,11 +48,11 @@ export default function ClaimForm({ bookId }: { bookId: string }) {
         <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
           <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
         </div>
-        <h3 className="text-xl font-bold text-gray-900 mb-2">預約領取成功！</h3>
-        <p className="text-gray-600 mb-6">請前往系辦走廊尋找舊書箱領取，書箱密碼已寫在書箱旁的板子上。</p>
+        <h3 className="text-xl font-bold text-gray-900 mb-2">預約配對成功！</h3>
+        <p className="text-gray-600 mb-6">請前往系辦走廊尋找舊書箱完成交接，書箱密碼已寫在書箱旁的板子上。</p>
         
         <p className="text-sm text-red-500 font-medium mb-6">
-          ⚠️ 注意：請盡快前往領取。若遲遲未領取，書本將可能被重新釋出。
+          ⚠️ 注意：請盡快前往完成交接。若遲遲未完成，書本將可能被重新釋出。
         </p>
         
         <button

@@ -14,6 +14,7 @@ export const authOptions: NextAuthOptions = {
     LineProvider({
       clientId: process.env.LINE_CLIENT_ID || "2011021687",
       clientSecret: process.env.LINE_CLIENT_SECRET || "fdbbd679f1359a6c8ffd0a05d43741ca",
+      authorization: { params: { scope: "profile openid" } },
     })
   ],
   callbacks: {

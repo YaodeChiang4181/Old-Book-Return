@@ -33,8 +33,8 @@ export default async function ClaimPage(
   if (book.status !== "IN_LOCKER") {
     return (
       <div className="max-w-xl mx-auto mt-20 p-8 bg-white rounded-xl shadow-sm text-center">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">無法領取</h2>
-        <p className="text-gray-600 mb-6">這本書目前不在書箱中，可能已經被其他人領走了。</p>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">無法配對</h2>
+        <p className="text-gray-600 mb-6">這本書目前不在書箱中，可能已經被其他人完成配對交接了。</p>
         <a href="/browse" className="text-blue-600 hover:underline">
           返回尋找其他好書
         </a>
@@ -65,12 +65,12 @@ export default async function ClaimPage(
         </div>
       </div>
 
-      {/* 右側領取表單 */}
+      {/* 右側配對表單 */}
       <div className="md:w-1/2 p-8 flex flex-col justify-center">
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">填寫感謝語</h2>
           <p className="text-gray-600">
-            送出一句感謝的話給捐贈者，並完成預約領取。請在當日結束前，儘速前往系辦書箱領取，書箱密碼請填寫在書箱旁的板子。
+            送出一句感謝的話給捐贈者，並完成預約配對。請在當日結束前，儘速前往系辦完成交接，書箱密碼請填寫在書箱旁的板子。
           </p>
         </div>
         <ClaimForm bookId={book.id} />

@@ -9,11 +9,11 @@ export default function Home() {
       </p>
       
       <div className="flex flex-col sm:flex-row gap-4 w-full justify-center max-w-md">
-        <a href="/donate" className="w-full sm:w-auto px-8 py-3 text-base font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow transition-colors">
-          我要捐書
-        </a>
-        <a href="/browse" className="w-full sm:w-auto px-8 py-3 text-base font-medium text-blue-600 bg-white border border-blue-600 hover:bg-blue-50 rounded-lg shadow-sm transition-colors">
+        <a href="/browse" className="w-full sm:w-auto px-8 py-3 text-base font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow transition-colors">
           找尋好書
+        </a>
+        <a href="/donate" className="w-full sm:w-auto px-8 py-3 text-base font-medium text-blue-600 bg-white border border-blue-600 hover:bg-blue-50 rounded-lg shadow-sm transition-colors">
+          我要捐書
         </a>
       </div>
     </div>

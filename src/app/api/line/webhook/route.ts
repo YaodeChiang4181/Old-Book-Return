@@ -206,6 +206,18 @@ export async function POST(req: NextRequest) {
           }
         } else if (action === 'reserve' && bookId) {
           // 學生預約流程
+          const activeReservedBooksCount = await prisma.book.count({
+            where: {
+              recipientId: user.id,
+              status: "RESERVED",
+            },
+          });
+
+          if (activeReservedBooksCount >= 3) {
+            await replyText(event.replyToken, `❌ 預約失敗！您目前已有 3 本預約中（尚未完成交接）的書籍，請先完成交接後再繼續預約。`);
+            continue;
+          }
+
           const book = await prisma.book.findUnique({ where: { id: bookId } });
           if (!book || book.status !== 'IN_LOCKER') {
             await replyText(event.replyToken, `❌ 預約失敗！這本書可能剛好被其他人預約或取走了。`);
@@ -323,6 +335,18 @@ export async function POST(req: NextRequest) {
 
         // --- 狀態 0：啟動捐書 ---
         if (text === '#我要捐書' || text === '我要捐書') {
+          const unmatchedBooksCount = await prisma.book.count({
+            where: {
+              donorId: user.id,
+              status: { in: ["PENDING", "IN_LOCKER"] },
+            },
+          });
+
+          if (unmatchedBooksCount >= 3) {
+            await replyText(replyToken, "❌ 您目前已有 3 本未媒合書籍，請等待舊書被配對後再捐贈新書喔！");
+            continue;
+          }
+
           await prisma.lineBotState.upsert({
             where: { lineUserId },
             create: { lineUserId, state: 'WAITING_FOR_BOOK_TITLE', data: "{}" },
