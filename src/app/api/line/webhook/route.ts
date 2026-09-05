@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.text();
     const signature = req.headers.get('x-line-signature') || '';
-    
+
     // 驗證簽章
     const channelSecret = process.env.LINE_CHANNEL_SECRET || '0bf3c06b55f065b822ccf9bc22373adc';
     if (channelSecret) {
@@ -127,18 +127,18 @@ export async function POST(req: NextRequest) {
         .createHmac('SHA256', channelSecret)
         .update(body)
         .digest('base64');
-        
+
       if (hash !== signature) {
         return NextResponse.json({ error: 'Invalid signature' }, { status: 403 });
       }
     }
 
     const data = JSON.parse(body);
-    
+
     // 處理 Webhook 事件
     for (const event of data.events) {
       const lineUserId = event.source.userId;
-      
+
       // Auto-provisioning 邏輯：檢查是否存在使用者
       let user = await prisma.user.findUnique({
         where: { lineUserId: lineUserId },
@@ -183,7 +183,7 @@ export async function POST(req: NextRequest) {
             include: { donor: true }
           });
           await replyText(event.replyToken, `✅ 已核准《${book.title}》上架！`);
-          
+
           if (book.donor.lineUserId) {
             await client.pushMessage({
               to: book.donor.lineUserId,
@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
             include: { donor: true }
           });
           await replyText(event.replyToken, `❌ 已退回《${book.title}》。`);
-          
+
           if (book.donor.lineUserId) {
             await client.pushMessage({
               to: book.donor.lineUserId,
@@ -205,7 +205,7 @@ export async function POST(req: NextRequest) {
             }).catch(console.error);
           }
         } else if (action === 'reserve' && bookId) {
-          // 學生預約流程
+          // 學生預約流程 - 步驟一：檢查並詢問感謝語
           const activeReservedBooksCount = await prisma.book.count({
             where: {
               recipientId: user.id,
@@ -224,31 +224,72 @@ export async function POST(req: NextRequest) {
             continue;
           }
 
-          // 更新狀態為 RESERVED
-          await prisma.book.update({
-            where: { id: bookId },
-            data: { status: 'RESERVED', recipientId: user.id }
+          // 更新 LineBotState 要求輸入感謝語
+          await prisma.lineBotState.upsert({
+            where: { lineUserId },
+            create: {
+              lineUserId,
+              state: 'WAITING_FOR_THANK_YOU_MSG',
+              data: JSON.stringify({ bookId: bookId })
+            },
+            update: {
+              state: 'WAITING_FOR_THANK_YOU_MSG',
+              data: JSON.stringify({ bookId: bookId })
+            }
           });
 
-          // 紀錄交易
+          await replyText(event.replyToken, `預約這本書之前，請留下對原捐贈者的一句感謝語喔！💕\n（這段話將會在您取書完成後，由系統代為轉達給捐贈者）`);
+        } else if (action === 'complete_handover' && bookId) {
+          // 管理員確認交接完成流程
+          if (user.role !== 'ADMIN') {
+            await replyText(event.replyToken, `❌ 權限不足。`);
+            continue;
+          }
+
+          const book = await prisma.book.findUnique({ where: { id: bookId }, include: { recipient: true, donor: true } });
+          if (!book || book.status !== 'RESERVED') {
+            await replyText(event.replyToken, `❌ 交接失敗！該書籍不存在或尚未被預約。`);
+            continue;
+          }
+
+          // 更新書籍狀態
+          await prisma.book.update({
+            where: { id: bookId },
+            data: { status: 'CLAIMED' }
+          });
+
+          // 建立交易紀錄
           await prisma.transaction.create({
             data: {
               bookId: bookId,
               userId: user.id,
-              type: 'RESERVE'
+              type: 'CLAIM'
             }
           });
 
-          await replyText(event.replyToken, `✅ 預約成功！\n\n書箱密碼為：0000\n請於三天內前往系辦走廊的舊書箱領取您的書籍喔！`);
+          await replyText(event.replyToken, `✅ 已將《${book.title}》標記為交接完成！`);
 
-          // 通知所有管理員：有書被預約了，準備交接
-          const admins = await prisma.user.findMany({ where: { role: 'ADMIN', lineUserId: { not: null } } });
-          const adminLineIds = admins.map(a => a.lineUserId).filter(Boolean) as string[];
-          if (adminLineIds.length > 0) {
-            const adminMsg = `📦 【待取書籍交接通知】\n\n學生「${user.name}」剛剛預約了書籍《${book.title}》！\n\n負責人請於交接時段，確認是否有確實將此書交給該學生喔！`;
-            await client.multicast({
-              to: adminLineIds,
-              messages: [{ type: 'text', text: adminMsg }]
+          // 尋找當初預約時留下的感謝語
+          const reserveTx = await prisma.transaction.findFirst({
+            where: { bookId: bookId, type: 'RESERVE' },
+            orderBy: { createdAt: 'desc' }
+          });
+          
+          const thankYouMsg = reserveTx?.message || '謝謝你的愛心！';
+
+          // 推播感謝語給捐贈者
+          if (book.donor.lineUserId) {
+            await client.pushMessage({
+              to: book.donor.lineUserId,
+              messages: [{ type: 'text', text: `🎉 好消息！您捐贈的《${book.title}》已經成功交給新主人了！新主人留了一段話給您：\n\n『${thankYouMsg}』\n\n感謝您的愛心，讓知識繼續循環！💖` }]
+            }).catch(console.error);
+          }
+
+          // 推播給領書學生
+          if (book.recipient?.lineUserId) {
+            await client.pushMessage({
+              to: book.recipient.lineUserId,
+              messages: [{ type: 'text', text: `🎉 感謝您領取《${book.title}》！祝您閱讀愉快，讓知識繼續循環！` }]
             }).catch(console.error);
           }
         }
@@ -261,7 +302,7 @@ export async function POST(req: NextRequest) {
       if (event.type === 'message') {
         const replyToken = event.replyToken;
         const text = event.message.type === 'text' ? event.message.text.trim() : '';
-        
+
         // 取得當前對話狀態
         const stateRecord = await prisma.lineBotState.findUnique({
           where: { lineUserId: lineUserId }
@@ -324,13 +365,13 @@ export async function POST(req: NextRequest) {
         // 攔截尚未綁定學號的用戶 (任何其他動作前)
         // 使用者如果有輸入密碼指令或是取消指令，已經在上方被處理掉
         if (!(user as any).studentId) {
-            await prisma.lineBotState.upsert({
-              where: { lineUserId },
-              create: { lineUserId, state: 'WAITING_FOR_STUDENT_ID', data: "{}" },
-              update: { state: 'WAITING_FOR_STUDENT_ID', data: "{}" }
-            });
-            await replyText(replyToken, "歡迎使用校園舊書箱！\n\n為了方便日後管理您的贈書與預約紀錄，初次使用請先輸入您的【9位數學校學號】進行綁定：");
-            continue;
+          await prisma.lineBotState.upsert({
+            where: { lineUserId },
+            create: { lineUserId, state: 'WAITING_FOR_STUDENT_ID', data: "{}" },
+            update: { state: 'WAITING_FOR_STUDENT_ID', data: "{}" }
+          });
+          await replyText(replyToken, "歡迎使用校園舊書箱！\n\n為了方便日後管理您的贈書與預約紀錄，初次使用請先輸入您的【9位數學校學號】進行綁定：");
+          continue;
         }
 
         // --- 狀態 0：啟動捐書 ---
@@ -424,8 +465,8 @@ export async function POST(req: NextRequest) {
               layout: "vertical",
               contents: [
                 { type: "text", text: book.title || "未知書籍", weight: "bold", size: "xl", wrap: true },
-                { 
-                  type: "box", 
+                {
+                  type: "box",
                   layout: "vertical",
                   margin: "md",
                   backgroundColor: "#E8F5E9",
@@ -481,7 +522,7 @@ export async function POST(req: NextRequest) {
           const bookTitle = text;
           await prisma.lineBotState.update({
             where: { lineUserId },
-            data: { 
+            data: {
               state: 'WAITING_FOR_BOOK_DESC',
               data: JSON.stringify({ title: bookTitle })
             }
@@ -498,7 +539,7 @@ export async function POST(req: NextRequest) {
 
           await prisma.lineBotState.update({
             where: { lineUserId },
-            data: { 
+            data: {
               state: 'WAITING_FOR_BOOK_IMAGE',
               data: JSON.stringify(stateData)
             }
@@ -519,7 +560,7 @@ export async function POST(req: NextRequest) {
           const description = stateData.description || '';
 
           await replyText(replyToken, "⏳ 正在由 AI 審核照片並準備入庫，請稍候...");
-          
+
           let imageUrl = '';
           try {
             // 下載 LINE 的圖片
@@ -534,7 +575,7 @@ export async function POST(req: NextRequest) {
             if (process.env.GEMINI_API_KEY) {
               try {
                 const prompt = `這是一張使用者上傳的二手書照片。請你幫我判斷這張圖片中是不是一本書，而且圖片中的書名（或是內容）是否符合這個名稱：『${bookTitle}』。請只回答 YES 或 NO。如果模糊不清無法判斷，請回答 NO。`;
-                
+
                 let responseText = "";
                 for (let attempt = 1; attempt <= 3; attempt++) {
                   try {
@@ -552,12 +593,12 @@ export async function POST(req: NextRequest) {
                         }]
                       })
                     });
-                    
+
                     if (!response.ok) {
                       const errText = await response.text();
                       throw new Error(`API Error ${response.status}: ${errText}`);
                     }
-                    
+
                     const result = await response.json();
                     responseText = (result.candidates?.[0]?.content?.parts?.[0]?.text || "").toUpperCase();
                     break; // 成功則跳出迴圈
@@ -579,7 +620,7 @@ export async function POST(req: NextRequest) {
                 continue; // 終止後續處理，嚴格擋下
               }
             }
-            
+
             // 上傳到 Cloudflare R2
             const filename = `books/${Date.now()}_${lineUserId}.jpg`;
             imageUrl = await uploadToR2(buffer, filename);
@@ -625,7 +666,7 @@ export async function POST(req: NextRequest) {
         // --- 狀態：處理找書關鍵字 (找書流程) ---
         if (currentState === 'WAITING_FOR_SEARCH_KEYWORD' && event.message.type === 'text') {
           const keyword = text;
-          
+
           // 不區分大小寫搜尋書名，狀態必須是 IN_LOCKER
           const books = await prisma.book.findMany({
             where: {
@@ -658,8 +699,8 @@ export async function POST(req: NextRequest) {
               layout: "vertical",
               contents: [
                 { type: "text", text: book.title || "未知書籍", weight: "bold", size: "xl", wrap: true },
-                { 
-                  type: "box", 
+                {
+                  type: "box",
                   layout: "vertical",
                   margin: "md",
                   backgroundColor: "#E8F5E9",
@@ -704,6 +745,203 @@ export async function POST(req: NextRequest) {
               replyToken,
               messages: [flexMessage as any]
             });
+          } catch (e) {
+            console.error('Flex Message Error', e);
+          }
+          continue;
+        }
+
+        // --- 狀態：處理感謝語 (預約流程) ---
+        if (currentState === 'WAITING_FOR_THANK_YOU_MSG' && event.message.type === 'text') {
+          const thankYouMsg = text;
+          const stateData = stateRecord?.data ? JSON.parse(stateRecord.data) : {};
+          const bookId = stateData.bookId;
+
+          if (!bookId) {
+            await prisma.lineBotState.delete({ where: { lineUserId } });
+            await replyText(replyToken, "❌ 預約發生錯誤，請重新操作。");
+            continue;
+          }
+
+          const book = await prisma.book.findUnique({ where: { id: bookId } });
+          if (!book || book.status !== 'IN_LOCKER') {
+            await prisma.lineBotState.delete({ where: { lineUserId } });
+            await replyText(replyToken, `❌ 預約失敗！這本書可能剛好被其他人預約或取走了。`);
+            continue;
+          }
+
+          // 更新狀態為 RESERVED
+          await prisma.book.update({
+            where: { id: bookId },
+            data: { status: 'RESERVED', recipientId: user.id }
+          });
+
+          // 紀錄交易並存入感謝語
+          await prisma.transaction.create({
+            data: {
+              bookId: bookId,
+              userId: user.id,
+              type: 'RESERVE',
+              message: thankYouMsg
+            }
+          });
+
+          // 清空狀態機
+          await prisma.lineBotState.delete({ where: { lineUserId } });
+
+          await replyText(replyToken, `✅ 預約成功！\n\n感謝您的留言！\n請於三天內前往系辦走廊，並聯繫負責人為您進行交接領取喔！`);
+
+          // 通知所有管理員：有書被預約了，準備交接
+          const admins = await prisma.user.findMany({ where: { role: 'ADMIN', lineUserId: { not: null } } });
+          const adminLineIds = admins.map(a => a.lineUserId).filter(Boolean) as string[];
+          if (adminLineIds.length > 0) {
+            const adminMsg = `📦 【待取書籍交接通知】\n\n學生「${user.name}」剛剛預約了書籍《${book.title}》！\n\n負責人請於交接時段，確認是否有確實將此書交給該學生喔！`;
+            await client.multicast({
+              to: adminLineIds,
+              messages: [{ type: 'text', text: adminMsg }]
+            }).catch(console.error);
+          }
+          continue;
+        }
+
+        // --- 我的預約功能 ---
+        if (text === '#我的預約' || text === '我的預約') {
+          const reservedBooks = await prisma.book.findMany({
+            where: {
+              recipientId: user.id,
+              status: 'RESERVED'
+            },
+            include: { donor: true }
+          });
+
+          if (reservedBooks.length === 0) {
+            await replyText(replyToken, "您目前沒有預約中、等待交接的書籍唷！");
+            continue;
+          }
+
+          const bubbles = reservedBooks.map(book => ({
+            type: "bubble",
+            hero: {
+              type: "image",
+              url: book.imageUrl || "https://fakeimg.pl/1024x768/E8F5E9/2E7D32/?text=暫無封面照片&font=noto",
+              size: "full",
+              aspectRatio: "20:13",
+              aspectMode: "cover"
+            },
+            body: {
+              type: "box",
+              layout: "vertical",
+              contents: [
+                { type: "text", text: book.title || "未知書籍", weight: "bold", size: "xl", wrap: true },
+                { type: "text", text: `捐贈者: ${book.donor.name || '匿名'}`, size: "sm", color: "#666666", margin: "md" }
+              ]
+            },
+            footer: {
+              type: "box",
+              layout: "vertical",
+              spacing: "sm",
+              contents: [
+                { type: "text", text: "📌 請於三天內至系辦聯繫管理員交接取書", size: "xs", color: "#ff334b", wrap: true }
+              ]
+            }
+          }));
+
+          const flexMessage = {
+            type: "flex",
+            altText: `您有 ${reservedBooks.length} 本預約中的書籍`,
+            contents: {
+              type: "carousel",
+              contents: bubbles
+            }
+          };
+
+          try {
+            await client.replyMessage({
+              replyToken,
+              messages: [flexMessage as any]
+            });
+          } catch (e) {
+            console.error('Flex Message Error', e);
+          }
+          continue;
+        }
+
+        // --- 待交接清單功能 (管理員) ---
+        if (text === '#待交接清單' || text === '待交接清單') {
+          if (user.role !== 'ADMIN') {
+            await replyText(replyToken, "❌ 權限不足，此功能僅限管理員使用。");
+            continue;
+          }
+
+          const pendingHandovers = await prisma.book.findMany({
+            where: { status: 'RESERVED' },
+            include: { recipient: true },
+            orderBy: { updatedAt: 'asc' },
+            take: 12
+          });
+
+          if (pendingHandovers.length === 0) {
+            await replyText(replyToken, "目前沒有等待交接的書籍！");
+            continue;
+          }
+
+          const bubbles = pendingHandovers.map(book => ({
+            type: "bubble",
+            hero: {
+              type: "image",
+              url: book.imageUrl || "https://fakeimg.pl/1024x768/E8F5E9/2E7D32/?text=無圖片",
+              size: "full",
+              aspectRatio: "20:13",
+              aspectMode: "cover"
+            },
+            body: {
+              type: "box",
+              layout: "vertical",
+              contents: [
+                { type: "text", text: book.title || "未知", weight: "bold", size: "xl", wrap: true },
+                { type: "text", text: `領取人: ${book.recipient?.name || '未知'}`, size: "md", color: "#0000ff", margin: "md" },
+                { type: "text", text: `學號: ${book.recipient?.studentId || '無'}`, size: "sm", color: "#666666" }
+              ]
+            },
+            footer: {
+              type: "box",
+              layout: "vertical",
+              spacing: "sm",
+              contents: [
+                {
+                  type: "button",
+                  style: "primary",
+                  color: "#00B900",
+                  action: {
+                    type: "postback",
+                    label: "✅ 確認交接完成",
+                    data: `action=complete_handover&bookId=${book.id}`
+                  }
+                }
+              ]
+            }
+          }));
+
+          const flexMessage = {
+            type: "flex",
+            altText: `有 ${pendingHandovers.length} 本待交接書籍`,
+            contents: {
+              type: "carousel",
+              contents: bubbles
+            }
+          };
+
+          try {
+            await client.replyMessage({
+              replyToken,
+              messages: [flexMessage as any]
+            });
+            
+            // 檢查是否超過 12 本
+            const totalCount = await prisma.book.count({ where: { status: 'RESERVED' } });
+            if (totalCount > 12) {
+              await pushText(lineUserId, `⚠️ 尚有更多 (${totalCount - 12} 本) 待交接書籍未顯示，請登入網站端後台處理。`);
+            }
           } catch (e) {
             console.error('Flex Message Error', e);
           }
