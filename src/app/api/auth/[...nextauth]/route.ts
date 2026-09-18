@@ -25,8 +25,8 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async signIn({ user }) {
-      // 若信箱為 @cc.ncu.edu.tw 或指定信箱，自動賦予管理員權限
-      const isAdmin = user.email?.endsWith('@cc.ncu.edu.tw') || user.email === '0966494679a@gmail.com';
+      // 若為指定信箱，自動賦予管理員權限
+      const isAdmin = user.email === '0966494679a@gmail.com';
       if (isAdmin && user.id) {
         await prisma.user.update({
           where: { id: user.id },
@@ -40,7 +40,7 @@ export const authOptions: NextAuthOptions = {
         session.user.id = user.id;
         session.user.role = user.role;
         // 動態判定 (確保剛更新的狀態有生效)
-        const isAdmin = session.user.email?.endsWith('@cc.ncu.edu.tw') || session.user.email === '0966494679a@gmail.com';
+        const isAdmin = session.user.email === '0966494679a@gmail.com';
         if (isAdmin) {
           session.user.role = 'ADMIN';
         }

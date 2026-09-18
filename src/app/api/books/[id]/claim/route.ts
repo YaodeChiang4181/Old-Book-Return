@@ -3,6 +3,12 @@ import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { messagingApi } from "@line/bot-sdk";
+
+const { MessagingApiClient } = messagingApi;
+const client = new MessagingApiClient({
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || ''
+});
 
 export async function POST(
   req: NextRequest,
@@ -63,6 +69,22 @@ export async function POST(
         },
       }),
     ]);
+
+    // Notify admins via LINE
+    try {
+      const admins = await prisma.user.findMany({ where: { role: 'ADMIN', lineUserId: { not: null } } });
+      const adminLineIds = admins.map(a => a.lineUserId).filter(Boolean) as string[];
+      if (adminLineIds.length > 0) {
+        const recipientName = session.user.name || '學生';
+        const adminMsg = `📦 【書籍領取通知】\n\n學生「${recipientName}」剛剛透過網頁領取了書籍《${book.title}》！\n\n感謝語：「${message}」`;
+        await client.multicast({
+          to: adminLineIds,
+          messages: [{ type: 'text', text: adminMsg }]
+        });
+      }
+    } catch (notifyError) {
+      console.error("Failed to notify admins:", notifyError);
+    }
 
     // 從 R2 刪除書籍圖片以節省空間
     if (book.imageUrl) {
