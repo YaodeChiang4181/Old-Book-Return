@@ -181,27 +181,47 @@ export async function POST(req: NextRequest) {
       });
 
       if (!user) {
-        let displayName = "LINE 用戶";
-        try {
-          const profile = await client.getProfile(lineUserId);
-          displayName = profile.displayName || "LINE 用戶";
-        } catch (error) {
-          console.error("Error getting LINE profile:", error);
-        }
+        // [Integration Fix]: 檢查是否已經透過網站 NextAuth (LINE Login) 登入過
+        const account = await prisma.account.findUnique({
+          where: {
+            provider_providerAccountId: {
+              provider: 'line',
+              providerAccountId: lineUserId,
+            }
+          },
+          include: { user: true }
+        });
 
-        user = await prisma.user.create({
-          data: {
-            lineUserId: lineUserId,
-            name: displayName,
-            accounts: {
-              create: {
-                type: 'oauth',
-                provider: 'line',
-                providerAccountId: lineUserId,
+        if (account && account.user) {
+          // 已經透過網站登入過，幫他把 User 表的 lineUserId 補上並同步帳號進度
+          user = await prisma.user.update({
+            where: { id: account.user.id },
+            data: { lineUserId: lineUserId }
+          });
+        } else {
+          // 網站也沒登入過，完全的新用戶，直接建立
+          let displayName = "LINE 用戶";
+          try {
+            const profile = await client.getProfile(lineUserId);
+            displayName = profile.displayName || "LINE 用戶";
+          } catch (error) {
+            console.error("Error getting LINE profile:", error);
+          }
+
+          user = await prisma.user.create({
+            data: {
+              lineUserId: lineUserId,
+              name: displayName,
+              accounts: {
+                create: {
+                  type: 'oauth',
+                  provider: 'line',
+                  providerAccountId: lineUserId,
+                }
               }
             }
-          }
-        });
+          });
+        }
       }
 
       // ==========================================
