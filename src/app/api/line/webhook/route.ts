@@ -318,13 +318,9 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // 秘密指令：升級管理員
+        // 秘密指令：升級管理員 (已被封鎖)
         if (text === '/我是管理員') {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { role: 'ADMIN' }
-          });
-          await replyText(replyToken, "👑 權限升級成功！你現在是「管理員 (ADMIN)」了，將會收到審核推播。");
+          await replyText(replyToken, "❌ 此管理員註冊入口已關閉。");
           continue;
         }
 
@@ -445,6 +441,16 @@ export async function POST(req: NextRequest) {
                     type: "message",
                     label: "輸入關鍵字",
                     text: "#精準找書"
+                  }
+                },
+                {
+                  type: "button",
+                  style: "primary",
+                  color: "#1B4D3E",
+                  action: {
+                    type: "uri",
+                    label: "前往網站查詢",
+                    uri: process.env.NEXT_PUBLIC_SITE_URL || "https://old-book-return.vercel.app/"
                   }
                 }
               ]
@@ -789,7 +795,7 @@ export async function POST(req: NextRequest) {
           // 清空狀態機
           await prisma.lineBotState.delete({ where: { lineUserId } });
 
-          await replyText(replyToken, `✅ 預約成功！\n\n感謝您的留言！\n請於三天內前往系辦走廊，並聯繫負責人為您進行交接領取喔！`);
+          await replyText(replyToken, `✅ 預約成功！\n\n感謝您的留言！\n請於三天內前往系辦走廊，並聯繫負責人為您進行交接領取喔！\n\n⚠️ 提醒：若一週內未完成交接，系統將自動取消此預約，恢復為可預約狀態。`);
 
           // 通知所有管理員：有書被預約了，準備交接
           const admins = await prisma.user.findMany({ where: { role: 'ADMIN', lineUserId: { not: null } } });
