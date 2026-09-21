@@ -121,8 +121,10 @@ export async function POST(req: NextRequest) {
       const admins = await prisma.user.findMany({ where: { role: 'ADMIN', lineUserId: { not: null } } });
       const adminLineIds = admins.map(a => a.lineUserId).filter(Boolean) as string[];
       if (adminLineIds.length > 0) {
+        const donorUser = await prisma.user.findUnique({ where: { id: session.user.id } });
         const donorName = session.user.name || '學生';
-        const adminMsg = `📚 【新捐書通知】\n\n學生「${donorName}」剛剛透過網頁捐贈了書籍《${title}》！\n\n狀態：${initialStatus === "IN_LOCKER" ? "已由 AI 核准直接上架" : "等待審核"}\n${imageUrl ? "附有書籍照片" : ""}`;
+        const donorStudentId = donorUser?.studentId || '未綁定學號';
+        const adminMsg = `📚 【新捐書通知】\n\n學生「${donorName}」(${donorStudentId}) 剛剛透過網頁捐贈了書籍《${title}》！\n\n狀態：${initialStatus === "IN_LOCKER" ? "已由 AI 核准直接上架" : "等待審核"}\n${imageUrl ? "附有書籍照片" : ""}`;
         await client.multicast({
           to: adminLineIds,
           messages: [{ type: 'text', text: adminMsg }]

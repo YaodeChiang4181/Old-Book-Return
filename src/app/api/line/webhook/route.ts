@@ -103,7 +103,7 @@ const pushAdminCard = async (admins: any[], book: any, donor: any) => {
         contents: [
           { type: "text", text: "新捐書審核", weight: "bold", size: "xl" },
           { type: "text", text: `書名: ${book.title}`, margin: "md", wrap: true },
-          { type: "text", text: `捐贈者: ${donor.name || '學生'}`, margin: "sm", wrap: true },
+          { type: "text", text: `捐贈者: ${donor.name || '學生'} (${donor.studentId || '未綁定學號'})`, margin: "sm", wrap: true },
           { type: "text", text: `書況: ${book.description}`, margin: "sm", wrap: true, color: "#666666" }
         ]
       },
@@ -839,7 +839,8 @@ export async function POST(req: NextRequest) {
           const admins = await prisma.user.findMany({ where: { role: 'ADMIN', lineUserId: { not: null } } });
           const adminLineIds = admins.map(a => a.lineUserId).filter(Boolean) as string[];
           if (adminLineIds.length > 0) {
-            const adminMsg = `📦 【待取書籍交接通知】\n\n學生「${user.name}」剛剛預約了書籍《${book.title}》！\n\n負責人請於交接時段，確認是否有確實將此書交給該學生喔！`;
+            const studentIdInfo = (user as any).studentId || '未綁定學號';
+            const adminMsg = `📦 【待取書籍交接通知】\n\n學生「${user.name}」(${studentIdInfo}) 剛剛預約了書籍《${book.title}》！\n\n負責人請於交接時段，確認是否有確實將此書交給該學生喔！`;
             await client.multicast({
               to: adminLineIds,
               messages: [{ type: 'text', text: adminMsg }]
