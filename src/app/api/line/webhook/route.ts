@@ -121,16 +121,19 @@ export async function POST(req: NextRequest) {
     const signature = req.headers.get('x-line-signature') || '';
 
     // 驗證簽章
-    const channelSecret = process.env.LINE_CHANNEL_SECRET || '0bf3c06b55f065b822ccf9bc22373adc';
-    if (channelSecret) {
-      const hash = crypto
-        .createHmac('SHA256', channelSecret)
-        .update(body)
-        .digest('base64');
+    const channelSecret = process.env.LINE_CHANNEL_SECRET;
+    if (!channelSecret) {
+      console.error("Missing LINE_CHANNEL_SECRET environment variable.");
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
 
-      if (hash !== signature) {
-        return NextResponse.json({ error: 'Invalid signature' }, { status: 403 });
-      }
+    const hash = crypto
+      .createHmac('SHA256', channelSecret)
+      .update(body)
+      .digest('base64');
+
+    if (hash !== signature) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 403 });
     }
 
     const data = JSON.parse(body);

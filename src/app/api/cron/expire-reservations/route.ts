@@ -11,10 +11,8 @@ export async function GET(req: NextRequest) {
   try {
     // 簡單的授權檢查 (可選：Vercel Cron Secret)
     const authHeader = req.headers.get("authorization");
-    if (
-      process.env.CRON_SECRET &&
-      authHeader !== `Bearer ${process.env.CRON_SECRET}`
-    ) {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
