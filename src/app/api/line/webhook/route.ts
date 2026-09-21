@@ -19,6 +19,31 @@ const s3Client = new S3Client({
   }
 });
 
+// [Security Fix]: Rate Limiting 防禦 (In-Memory 防禦層)
+const rateLimitMap = new Map<string, { count: number, resetTime: number }>();
+const RATE_LIMIT_WINDOW_MS = 60000; // 1 分鐘
+const MAX_REQUESTS_PER_WINDOW = 15; // 限制每位使用者每分鐘最多 15 次互動
+
+function checkRateLimit(lineUserId: string): boolean {
+  const now = Date.now();
+  const record = rateLimitMap.get(lineUserId);
+
+  // 清理過期的紀錄 (可選，避免 Map 無限長大)
+  if (rateLimitMap.size > 1000) rateLimitMap.clear();
+
+  if (!record || now > record.resetTime) {
+    rateLimitMap.set(lineUserId, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+    return true; // 允許
+  }
+
+  if (record.count >= MAX_REQUESTS_PER_WINDOW) {
+    return false; // 拒絕 (已達上限)
+  }
+
+  record.count += 1;
+  return true; // 允許
+}
+
 // 輔助函式：上傳圖片到 R2
 async function uploadToR2(buffer: Buffer, filename: string): Promise<string> {
   const bucket = process.env.R2_BUCKET_NAME || '';
@@ -141,6 +166,14 @@ export async function POST(req: NextRequest) {
     // 處理 Webhook 事件
     for (const event of data.events) {
       const lineUserId = event.source.userId;
+
+      // [Security Fix]: 檢查 Rate Limit
+      if (lineUserId && !checkRateLimit(lineUserId)) {
+        if (event.replyToken) {
+           await replyText(event.replyToken, "⚠️ 您的操作太過頻繁！為保護系統資源，請稍等 1 分鐘後再試。");
+        }
+        continue;
+      }
 
       // Auto-provisioning 邏輯：檢查是否存在使用者
       let user = await prisma.user.findUnique({
