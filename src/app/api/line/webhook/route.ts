@@ -260,6 +260,46 @@ export async function POST(req: NextRequest) {
               messages: [{ type: 'text', text: `❌ 很抱歉，您捐贈的書籍《${book.title}》審核未通過，請至系辦取回喔。` }]
             }).catch(console.error);
           }
+        } else if (action === 'request_manual_review') {
+          // 學生申請人工審核
+          const botState = await prisma.lineBotState.findUnique({ where: { lineUserId } });
+          if (!botState || botState.state !== 'WAITING_FOR_BOOK_IMAGE') {
+            await replyText(event.replyToken, "❌ 目前沒有等待審核的捐書流程。");
+            continue;
+          }
+
+          const stateData = botState.data ? JSON.parse(botState.data) : {};
+          const bookTitle = stateData.title || '未知書籍';
+          const description = stateData.description || '';
+          
+          // 先將書本以 PENDING 狀態存入資料庫（跳過 AI 審核）
+          const newBook = await prisma.book.create({
+            data: {
+              title: bookTitle, 
+              description: description, 
+              status: 'PENDING',
+              imageUrl: stateData.lastUploadedImageUrl || null,
+              donorId: user.id,
+            }
+          });
+
+          // 建立捐贈紀錄
+          await prisma.transaction.create({
+            data: { bookId: newBook.id, userId: user.id, type: 'DONATE' }
+          });
+
+          // 清空狀態機
+          await prisma.lineBotState.delete({ where: { lineUserId } });
+
+          await replyText(event.replyToken, "📩 已為您提交人工審核申請！\n\n管理員將在收到通知後進行確認，審核通過會再通知您喔。");
+
+          // 推播人工審核卡片給管理員（複用 pushAdminCard）
+          const admins = await prisma.user.findMany({
+            where: { role: 'ADMIN', lineUserId: { not: null } }
+          });
+          if (admins.length > 0) {
+            await pushAdminCard(admins, newBook, user);
+          }
         } else if (action === 'reserve' && bookId) {
           // 學生預約流程 - 步驟一：檢查並詢問感謝語
           const activeReservedBooksCount = await prisma.book.count({
@@ -675,7 +715,42 @@ export async function POST(req: NextRequest) {
 
                 if (!responseText.includes("YES")) {
                   // AI 審核未通過
-                  await pushText(lineUserId, "❌ AI 審核未通過：照片與你輸入的書名不符，或無法清楚辨識為書本。\n\n請重新拍攝清晰的「書本封面」照片並再次上傳！📸");
+                  const currentFailCount = (stateData.aiFailCount || 0) + 1;
+                  // 更新失敗次數到 LineBotState
+                  await prisma.lineBotState.update({
+                    where: { lineUserId },
+                    data: { data: JSON.stringify({ ...stateData, aiFailCount: currentFailCount }) }
+                  });
+
+                  if (currentFailCount >= 2) {
+                    // 達到 2 次 → 提供「申請人工審核」按鈕
+                    const flexMsg = {
+                      type: "flex",
+                      altText: "AI 審核未通過 - 可申請人工審核",
+                      contents: {
+                        type: "bubble",
+                        body: {
+                          type: "box", layout: "vertical",
+                          contents: [
+                            { type: "text", text: "📸 AI 審核未通過", weight: "bold", size: "lg" },
+                            { type: "text", text: "已連續 2 次未通過 AI 辨識。\n如果你確定照片正確，可點擊下方按鈕申請管理員人工審核。", wrap: true, margin: "md", color: "#666666" }
+                          ]
+                        },
+                        footer: {
+                          type: "box", layout: "vertical", spacing: "sm",
+                          contents: [
+                            { type: "button", style: "primary", color: "#FF6B35",
+                              action: { type: "postback", label: "📩 申請人工審核", data: "action=request_manual_review" } },
+                            { type: "button", style: "secondary",
+                              action: { type: "message", label: "🔄 重新拍照上傳", text: "重新上傳" } }
+                          ]
+                        }
+                      }
+                    };
+                    await client.pushMessage({ to: lineUserId, messages: [flexMsg as any] }).catch(console.error);
+                  } else {
+                    await pushText(lineUserId, `❌ AI 審核未通過（第 ${currentFailCount} 次）：照片與書名不符。\n\n請重新拍攝清晰的「書本封面」照片並再次上傳！📸\n（連續 2 次未通過將可申請人工審核）`);
+                  }
                   continue; // 終止後續處理，讓使用者保持 WAITING_FOR_BOOK_IMAGE 狀態重新上傳
                 }
               } catch (aiError) {
@@ -688,6 +763,8 @@ export async function POST(req: NextRequest) {
             // 上傳到 Cloudflare R2
             const filename = `books/${Date.now()}_${lineUserId}.jpg`;
             imageUrl = await uploadToR2(buffer, filename);
+            // 暫存圖片 URL 以供人工審核使用
+            stateData.lastUploadedImageUrl = imageUrl;
           } catch (e) {
             console.error("Image Processing Error", e);
             // 即使圖片失敗，依然繼續流程，只是沒圖片
@@ -853,7 +930,7 @@ export async function POST(req: NextRequest) {
           // 清空狀態機
           await prisma.lineBotState.delete({ where: { lineUserId } });
 
-          await replyText(replyToken, `✅ 預約成功！\n\n感謝您的留言！\n請於三天內前往系辦走廊，並聯繫負責人為您進行交接領取喔！\n\n⚠️ 提醒：若一週內未完成交接，系統將自動取消此預約，恢復為可預約狀態。`);
+          await replyText(replyToken, `✅ 預約成功！\n\n感謝您的留言！\n📅 請於 7 天內前往系辦走廊，並聯繫負責人為您進行交接領取喔！\n\n⚠️ 提醒：系統將於到期前 1 天發送提醒通知。若一週內未完成交接，系統將自動取消此預約，恢復為可預約狀態。`);
 
           // 通知所有管理員：有書被預約了，準備交接
           const admins = await prisma.user.findMany({ where: { role: 'ADMIN', lineUserId: { not: null } } });
@@ -906,7 +983,7 @@ export async function POST(req: NextRequest) {
               layout: "vertical",
               spacing: "sm",
               contents: [
-                { type: "text", text: "📌 請於三天內至系辦聯繫管理員交接取書", size: "xs", color: "#ff334b", wrap: true }
+                { type: "text", text: "📌 請於 7 天期限內至系辦聯繫管理員交接取書", size: "xs", color: "#ff334b", wrap: true }
               ]
             }
           }));

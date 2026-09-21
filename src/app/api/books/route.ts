@@ -86,8 +86,8 @@ export async function POST(req: NextRequest) {
         const responseText = result.response.text().toUpperCase();
 
         if (!responseText.includes("YES")) {
-          // 若 AI 審核失敗，直接回傳錯誤，不進入 PENDING 狀態
-          return NextResponse.json({ error: "AI 審核未通過：照片與書名不符，或無法清楚辨識為書本。請重新拍攝清晰的照片。" }, { status: 400 });
+          // 若 AI 審核失敗，轉交人工審核 (PENDING)
+          initialStatus = "PENDING";
         }
       } catch (aiError) {
         console.error("Gemini AI Review Error:", aiError);
